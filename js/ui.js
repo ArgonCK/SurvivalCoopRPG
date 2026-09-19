@@ -43,7 +43,7 @@ function sourceText(id) {
   return s ? [...s].slice(0, 4).join(', ') : 'craft only';
 }
 
-export const ui = { selArea: null, selItem: null, track: null, speed: 1, paused: false };
+export const ui = { selArea: null, selItem: null, selTarget: null, track: null, speed: 1, paused: false };
 
 let getG = () => null;
 let onNewGame = () => {};
@@ -70,15 +70,41 @@ function updatePlayerWants(g) {
 }
 
 // ---------------------------------------------------------------- render
+// Panels re-render only when their HTML actually changed, and scrollable
+// children ([data-keep-scroll]) keep their scroll position — so the field
+// guide doesn't jump while the clock ticks.
+function setHtml(id, html) {
+  const el = document.getElementById(id);
+  if (!el || el.__html === html) return;
+  const keep = [];
+  for (const n of el.querySelectorAll('[data-keep-scroll]')) {
+    keep.push({ id: n.id, top: n.scrollTop, atBottom: n.scrollTop + n.clientHeight >= n.scrollHeight - 24 });
+  }
+  const selfKeep = el.hasAttribute('data-keep-scroll')
+    ? { top: el.scrollTop, atBottom: el.scrollTop + el.clientHeight >= el.scrollHeight - 24 }
+    : null;
+  el.__html = html;
+  el.innerHTML = html;
+  for (const k of keep) {
+    const n = document.getElementById(k.id);
+    if (n) n.scrollTop = k.atBottom && n.id === 'log' ? n.scrollHeight : k.top;
+  }
+  if (selfKeep) el.scrollTop = (selfKeep.atBottom && el.id === 'log') ? el.scrollHeight : selfKeep.top;
+}
+
+let firstRender = true;
 export function render(g) {
   updatePlayerWants(g);
-  document.getElementById('topbar').innerHTML = topbarHtml(g);
-  document.getElementById('objectives').innerHTML = objectivesHtml(g);
-  document.getElementById('map-panel').innerHTML = mapHtml(g);
-  document.getElementById('center-panel').innerHTML = centerHtml(g);
-  document.getElementById('side-panel').innerHTML = sideHtml(g);
-  const logEl = document.getElementById('log');
-  if (logEl) logEl.scrollTop = logEl.scrollHeight;
+  setHtml('topbar', topbarHtml(g));
+  setHtml('objectives', objectivesHtml(g));
+  setHtml('map-panel', mapHtml(g));
+  setHtml('area-wrap', areaHtml(g));
+  setHtml('log', g.log.slice(-90).map(e =>
+    `<div class="log-${e.type}"><span class="t">${G.fmtT(e.t)}</span>${esc(e.msg)}</div>`).join(''));
+  setHtml('party-panel', partyPanelHtml(g));
+  setHtml('pack-panel', packPanelHtml(g));
+  setHtml('craft-panel', craftPanelHtml(g));
+  if (firstRender) { firstRender = false; const l = document.getElementById('log'); if (l) l.scrollTop = l.scrollHeight; }
   renderOverlay(g);
 }
 
@@ -190,12 +216,13 @@ function mapActionsHtml(g) {
 }
 
 // ---------------------------------------------------------------- center
-function centerHtml(g) {
+function areaHtml(g) {
   const me = player(g);
   const a = G.areaDef(me.area);
   const [c1, c2] = HUES[me.area];
   const p = G.phase(g);
   const creatures = g.creatures.filter(c => c.area === me.area);
+  const inBattle = creatures.length > 0 && !me.dead;
   const downedHere = g.survivors.find(s => s.downed && !s.dead && s.area === me.area);
   const here = g.survivors.filter(s => !s.dead && s.area === me.area);
 
@@ -209,42 +236,73 @@ function centerHtml(g) {
     actions = `<div style="flex:1">
       <div class="busy-label">${busyLabel(me.busy)} — ${Math.max(0, me.busy.until - g.t)}s</div>
       <div class="busybar"><div style="width:${pct}%"></div></div></div>`;
-  } else {
+  } else if (!inBattle) {
     const searchable = !g.areas[me.area].locked;
     actions = `
-      <button class="btn primary big" data-action="search" ${searchable ? '' : 'disabled'}>Search <span class="cost">−${COSTS.search} SP · ${2}s</span></button>
+      <button class="btn primary big" data-action="search" ${searchable ? '' : 'disabled'}>Search <span class="cost">−${COSTS.search} SP · 2s</span></button>
       <button class="btn ${me.resting ? 'primary' : ''}" data-action="rest">${me.resting ? 'Resting… (tap to stop)' : 'Rest'}</button>
-      ${creatures.length ? `<button class="btn danger" data-action="flee">Flee <span class="cost">−1 SP</span></button>` : ''}
       ${downedHere && downedHere !== me ? `<button class="btn danger" data-action="revive">Revive ${downedHere.name}${G.invCount(me, 'bandage') ? ' (bandage, 3s)' : ' (6s)'}</button>` : ''}
     `;
   }
 
-  const occ = [
-    ...here.map(s => `<div class="occ-row"><span class="dot" style="background:${s.color}"></span>
-      ${s.name}${s.i === 0 ? ' (you)' : ''}${s.downed ? ' — DOWN' : ''}
-      <div class="hpbar"><div style="width:${(100 * s.hp / s.maxHp)}%"></div></div></div>`),
-    ...creatures.map(c => `<div class="occ-row creature-row ${CREATURES[c.type].boss ? 'boss' : ''}">
-      ${CREATURES[c.type].boss ? '☠' : '⚠'} ${CREATURES[c.type].name} (ATK ${CREATURES[c.type].atk})
-      <div class="hpbar"><div style="width:${(100 * c.hp / CREATURES[c.type].hp)}%;background:#8a4632"></div></div></div>`),
-  ].join('');
+  const allies = here.map(s => `<div class="occ-row"><span class="dot" style="background:${s.color}"></span>
+      ${s.name}${s.i === 0 ? ' (you)' : ''}${s.downed ? ' — DOWN' : ''}${s.i === 0 && s.guarding ? ' 🛡' : ''}
+      <div class="hpbar"><div style="width:${(100 * s.hp / s.maxHp)}%"></div></div></div>`).join('');
 
   return `
-    <div id="area-card">
+    <div id="area-card" class="${inBattle ? 'battle' : ''}">
       <div id="area-art" style="background:linear-gradient(135deg, ${c1}, ${c2})${p.night ? ',#000' : ''}">
         <h1>${a.name}</h1>
         <div class="sub">${AREA_FLAVOR[me.area]}${p.night ? ' · night' : ''}</div>
       </div>
       <div id="area-body">
+        ${inBattle ? battleHtml(g, me, creatures) : ''}
         <div id="area-actions">${actions}</div>
         ${me.area === 'lab' ? beaconHtml(g, me) : ''}
-        <div class="occupants">${occ || '<span class="busy-label">Nobody else here.</span>'}</div>
+        <div class="occupants">${allies || '<span class="busy-label">Nobody else here.</span>'}</div>
       </div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Radio log</h2>
-      <div id="log">${g.log.slice(-80).map(e =>
-        `<div class="log-${e.type}"><span class="t">${G.fmtT(e.t)}</span>${esc(e.msg)}</div>`).join('')}</div>
     </div>`;
+}
+
+// JRPG-style encounter panel: pick a target, then Attack / Guard / Item / Flee.
+function battleHtml(g, me, creatures) {
+  if (!creatures.some(c => c.id === ui.selTarget)) {
+    ui.selTarget = creatures.reduce((m, c) => (c.hp < m.hp ? c : m)).id;
+  }
+  const targets = creatures.map(c => {
+    const d = CREATURES[c.type];
+    return `<button class="target-row ${c.id === ui.selTarget ? 'sel' : ''} ${d.boss ? 'boss' : ''}" data-action="target" data-cid="${c.id}">
+      <span class="tname">${d.boss ? '☠' : '⚠'} ${d.name}</span>
+      <span class="tstat">ATK ${d.atk}</span>
+      <div class="hpbar big"><div style="width:${100 * c.hp / d.hp}%"></div></div>
+      <span class="tstat">${c.hp}/${d.hp}</span>
+    </button>`;
+  }).join('');
+
+  let controls = '';
+  if (!me.downed && !me.dead && !me.busy) {
+    const cd = Math.max(0, me.atkCd - g.t);
+    const heal = me.inv.map(e => ITEMS[e.id]).filter(d => (d.cat === 'food' || d.cat === 'med') && d.hp)
+      .sort((x, y) => y.hp - x.hp)[0];
+    const healId = heal ? me.inv.find(e => ITEMS[e.id] === heal).id : null;
+    const eatCd = Math.max(0, me.eatCd - g.t);
+    controls = `<div class="battle-actions">
+      <button class="btn danger big" data-action="attack" ${cd ? 'disabled' : ''}>⚔ Attack${cd ? ` (${cd}s)` : ''} <span class="cost">ATK ${1 + (me.weapon ? ITEMS[me.weapon].atk : 0)}</span></button>
+      <button class="btn ${me.guarding ? 'primary' : ''}" data-action="guard">🛡 ${me.guarding ? 'Guarding' : 'Guard'}</button>
+      ${healId ? `<button class="btn" data-action="use" data-item="${healId}" ${eatCd ? 'disabled' : ''}>${ITEMS[healId].name} +${ITEMS[healId].hp}${eatCd ? ` (${eatCd}s)` : ''}</button>` : ''}
+      <button class="btn" data-action="flee">Flee <span class="cost">−1 SP · 75%</span></button>
+    </div>`;
+  }
+
+  const feed = g.log.filter(e => e.type === 'fight').slice(-4)
+    .map(e => `<div>${esc(e.msg)}</div>`).join('');
+
+  return `<div id="battle-box">
+    <div class="battle-title">⚠ ENGAGED — ${creatures.length} hostile${creatures.length > 1 ? 's' : ''}</div>
+    <div class="targets">${targets}</div>
+    ${controls}
+    <div class="battle-feed">${feed}</div>
+  </div>`;
 }
 
 function beaconHtml(g, me) {
@@ -272,23 +330,19 @@ function busyLabel(b) {
 }
 
 // ---------------------------------------------------------------- side
-function sideHtml(g) {
-  return `
-    <div class="panel">
-      <h2>Party</h2>
-      ${g.survivors.map(s => partyCard(g, s)).join('')}
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Your pack (${player(g).inv.length}/6)</h2>
-      ${gearHtml(player(g))}
-      <div id="inv-grid">${invHtml(g)}</div>
-      <div id="item-actions">${itemActionsHtml(g)}</div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <h2>Field guide — combine 2 items</h2>
-      <div id="craft-list">${craftHtml(g)}</div>
-      <div id="track-hint">${trackHintHtml(g)}</div>
-    </div>`;
+function partyPanelHtml(g) {
+  return `<h2>Party</h2>${g.survivors.map(s => partyCard(g, s)).join('')}`;
+}
+function packPanelHtml(g) {
+  return `<h2>Your pack (${player(g).inv.length}/6)</h2>
+    ${gearHtml(player(g))}
+    <div id="inv-grid">${invHtml(g)}</div>
+    <div id="item-actions">${itemActionsHtml(g)}</div>`;
+}
+function craftPanelHtml(g) {
+  return `<h2>Field guide — combine 2 items</h2>
+    <div id="craft-list" data-keep-scroll>${craftHtml(g)}</div>
+    <div id="track-hint">${trackHintHtml(g)}</div>`;
 }
 
 function partyCard(g, s) {
@@ -464,6 +518,9 @@ function onClick(e) {
     case 'search': G.doSearch(g, me); break;
     case 'rest': G.toggleRest(g, me); break;
     case 'flee': G.doFlee(g, me); break;
+    case 'target': ui.selTarget = +el.dataset.cid; break;
+    case 'attack': G.doAttack(g, me, ui.selTarget); break;
+    case 'guard': G.doGuard(g, me); break;
     case 'revive': G.doRevive(g, me); break;
     case 'install': G.doInstall(g, me); break;
     case 'fire': G.doStartBeacon(g, me); break;

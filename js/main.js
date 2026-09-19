@@ -52,5 +52,6 @@ function start(hotData) {
   }, 250);
 }
 
+try { window.__cinder = { get g() { return g; } }; } catch { /* not a browser */ }
 try { window.claude?.hot?.snapshot?.(() => ({ save: serialize(g) })); } catch { /* ignore */ }
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});

@@ -80,7 +80,7 @@ export function createGame(seed = Date.now() % 2147483647) {
       area: d.spawn, hp: MAX_HP, maxHp: MAX_HP, sp: MAX_SP, maxSp: MAX_SP,
       weapon: null, armor: null, inv: [],
       downed: false, bleed: 0, dead: false,
-      busy: null, resting: false, eatCd: 0,
+      busy: null, resting: false, eatCd: 0, atkCd: 0, guarding: false,
       ai: { mode: 'free', lastTalk: 0 },
     });
   });
@@ -155,7 +155,7 @@ function canAct(g, s) { return !g.over && !s.dead && !s.downed && !s.busy; }
 
 export function doSearch(g, s) {
   if (!canAct(g, s)) return false;
-  s.resting = false;
+  s.resting = false; s.guarding = false;
   paySp(g, s, COSTS.search);
   s.busy = { kind: 'search', until: g.t + TIMES.search, dur: TIMES.search };
   return true;
@@ -163,7 +163,7 @@ export function doSearch(g, s) {
 export function doMove(g, s, dest) {
   if (!canAct(g, s)) return false;
   if (!neighbors(s.area).includes(dest) || g.areas[dest].locked) return false;
-  s.resting = false;
+  s.resting = false; s.guarding = false;
   paySp(g, s, COSTS.move);
   s.busy = { kind: 'move', until: g.t + TIMES.move, dur: TIMES.move, dest };
   return true;
@@ -213,7 +213,7 @@ export function doRevive(g, s) {
 }
 export function doFlee(g, s) {
   if (!canAct(g, s)) return false;
-  s.resting = false;
+  s.resting = false; s.guarding = false;
   paySp(g, s, 1);
   const exits = neighbors(s.area).filter(n => !g.areas[n].locked);
   if (exits.length && rnd(g) < 0.75) {
@@ -245,6 +245,34 @@ export function doStartBeacon(g, s) {
   g.beacon.charge = 0;
   g.beacon.nextWave = g.t + 4;
   log(g, 'sys', `BEACON FIRED. Extraction in ${DEFEND_TIME} seconds — hold the Lab! Everything on the island is coming.`);
+  return true;
+}
+// Player battle actions (JRPG encounter mode — companions swing automatically)
+export function doAttack(g, s, creatureId) {
+  if (!canAct(g, s) || g.t < s.atkCd) return false;
+  let target = g.creatures.find(c => c.id === creatureId && c.area === s.area);
+  if (!target) target = g.creatures.filter(c => c.area === s.area).reduce((m, c) => (!m || c.hp < m.hp ? c : m), null);
+  if (!target) return false;
+  s.resting = false; s.guarding = false;
+  s.atkCd = g.t + 2;
+  const def = CREATURES[target.type];
+  if (rnd(g) < 0.85) {
+    let dmg = Math.max(1, atk(s) - def.arm);
+    const crit = rnd(g) < 0.05;
+    if (crit) dmg *= 2;
+    target.hp -= dmg;
+    log(g, 'fight', `You ${crit ? 'CRIT' : 'hit'} the ${def.name} for ${dmg}.`);
+    if (target.hp <= 0) creatureDeath(g, target, s);
+  } else {
+    log(g, 'fight', `You swing at the ${def.name} — miss!`);
+  }
+  return true;
+}
+export function doGuard(g, s) {
+  if (!canAct(g, s)) return false;
+  s.resting = false;
+  s.guarding = true;
+  log(g, 'fight', 'You brace behind your guard (damage halved until your next move).');
   return true;
 }
 export function doDrop(g, s, id) {
@@ -539,16 +567,20 @@ function combatTick(g) {
       if (!targets.length) continue; // won't finish off the downed — revive window
       const t = pick(g, targets);
       if (rnd(g) < 0.85) {
-        const dmg = Math.max(1, CREATURES[c.type].atk - armor(t));
+        let dmg = Math.max(1, CREATURES[c.type].atk - armor(t));
+        if (t.guarding) dmg = Math.max(1, Math.floor(dmg / 2));
         t.hp -= dmg;
-        if (t.isPlayer) log(g, 'fight', `${CREATURES[c.type].name} hits you for ${dmg}.`);
+        if (t.isPlayer) log(g, 'fight', `${CREATURES[c.type].name} hits you for ${dmg}${t.guarding ? ' (guarded)' : ''}.`);
         checkDown(g, t, CREATURES[c.type].name);
+      } else if (t.isPlayer) {
+        log(g, 'fight', `${CREATURES[c.type].name} lunges at you — misses.`);
       }
     }
-    // survivors strike back (auto-fight, lowest-hp creature first)
+    // companions strike back automatically; the player fights via battle actions
     const alive = () => g.creatures.filter(c => c.area === a.id);
     for (const s of standing) {
       if (s.hp <= 0 || s.busy?.kind === 'stumble') continue;
+      if (s.isPlayer && !g.autopilot) continue;
       const pool2 = alive();
       if (!pool2.length) break;
       const target = pool2.reduce((m, c) => (c.hp < m.hp ? c : m));

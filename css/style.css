@@ -144,6 +144,35 @@ button { font: inherit; cursor: pointer; }
 .creature-row { color: var(--ember); }
 .creature-row.boss { color: #ff8f6b; font-weight: 700; }
 
+/* battle (encounter mode) */
+#area-card.battle { border-color: var(--ember); }
+#battle-box {
+  border: 1px solid #5a3128; border-radius: 10px; padding: 10px;
+  background: linear-gradient(180deg, #241715, var(--panel2));
+}
+.battle-title {
+  font-family: 'Bricolage Grotesque', sans-serif; font-weight: 700; font-size: 13px;
+  letter-spacing: 0.12em; color: var(--ember); margin-bottom: 8px;
+}
+.targets { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.target-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; color: var(--bone); text-align: left;
+}
+.target-row:hover { border-color: var(--dim); }
+.target-row.sel { border-color: var(--ember); background: #2a1c17; }
+.target-row.boss .tname { color: #ff8f6b; font-weight: 700; }
+.target-row .tname { flex: 0 0 auto; }
+.target-row .tstat { color: var(--faint); font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
+.hpbar.big { height: 9px; max-width: none; }
+.hpbar.big div { background: #a34a33; }
+.battle-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.battle-feed {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #d98d76;
+  line-height: 1.5; border-top: 1px solid #3a241d; padding-top: 6px; min-height: 18px;
+}
+
 /* beacon box */
 #beacon-box { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--panel2); }
 #beacon-box .parts { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }

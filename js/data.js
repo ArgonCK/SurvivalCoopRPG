@@ -134,7 +134,7 @@ export const CREATURES = {
 
 // Phase schedule (seconds at 1x). ambient = seconds between roaming spawns.
 export const PHASES = [
-  { id: 'day1',  name: 'Day 1',   until: 7 * 60,  night: false, ambient: 120, encounter: 0.04, spawns: ['rat', 'crow'] },
+  { id: 'day1',  name: 'Day 1',   until: 7 * 60,  night: false, ambient: 90, encounter: 0.06, spawns: ['rat', 'crow'] },
   { id: 'night1',name: 'Night 1', until: 12 * 60, night: true,  ambient: 70,  encounter: 0.08, spawns: ['dog', 'rat', 'dog'] },
   { id: 'day2',  name: 'Day 2',   until: 18 * 60, night: false, ambient: 80,  encounter: 0.06, spawns: ['boar', 'dog', 'wolf'] },
   { id: 'night2',name: 'Night 2', until: 23 * 60, night: true,  ambient: 70,  encounter: 0.10, spawns: ['wolf', 'bear', 'wolf'] },
