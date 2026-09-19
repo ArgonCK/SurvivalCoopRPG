@@ -10,6 +10,7 @@ const verboseSeed = process.argv.includes('--verbose') ? parseInt(process.argv[p
 function run(seed, verbose = false) {
   const g = createGame(seed);
   g.autopilot = true;
+  for (const s of g.survivors) s.met = true; // sim: full visibility for logs/behavior parity
   const maxT = PURGE_AT + DEFEND_TIME + 120;
   let printed = 0;
   const fullLog = [];

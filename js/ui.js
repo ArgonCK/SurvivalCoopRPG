@@ -136,7 +136,10 @@ function threatText(g) {
 
 function objectivesHtml(g) {
   const objs = [];
-  objs.push(`<span class="obj ${g.reunion ? 'done' : 'active'}">${g.reunion ? '✓' : '1.'} Regroup the party</span>`);
+  const living = g.survivors.filter(s => s.i !== 0 && !s.dead);
+  const metCount = living.filter(s => s.met).length;
+  const allMet = living.every(s => s.met);
+  objs.push(`<span class="obj ${allMet ? 'done' : 'active'}">${allMet ? '✓' : '1.'} Find your team (${metCount}/${living.length || 3})</span>`);
   const n = g.beacon.installed.length;
   objs.push(`<span class="obj ${n >= 3 ? 'done' : g.reunion ? 'active' : ''}">${n >= 3 ? '✓' : '2.'} Beacon parts ${n}/3 at the Lab</span>`);
   if (g.beacon.started) objs.push(`<span class="obj active">3. HOLD ${DEFEND_TIME - g.beacon.charge}s</span>`);
@@ -172,7 +175,7 @@ function mapHtml(g) {
       me.area === a.id ? 'here' : '',
       ui.selArea === a.id ? 'sel' : '',
     ].join(' ');
-    const dots = g.survivors.filter(s => !s.dead && s.area === a.id)
+    const dots = g.survivors.filter(s => !s.dead && s.area === a.id && G.met(s))
       .map((s, i) => `<circle cx="${x + 10 + i * 11}" cy="${y + 34}" r="4" fill="${s.color}"/>`).join('');
     const cs = g.creatures.filter(c => c.area === a.id);
     const cMark = cs.length
@@ -346,6 +349,14 @@ function craftPanelHtml(g) {
 }
 
 function partyCard(g, s) {
+  if (!G.met(s)) {
+    return `<div class="party-card unmet ${s.dead ? 'dead' : ''}">
+      <div class="pc-head"><span class="dot" style="background:${s.color};opacity:.4"></span>
+        <span class="nm">${s.name}</span>
+        <span class="where">NO CONTACT</span></div>
+      <div class="pc-status" style="color:var(--faint)">${s.dead ? 'Their flare went dark.' : `Last flare seen to the <b>${s.flareDir}</b>. Reach them to sync radios.`}</div>
+    </div>`;
+  }
   const cls = ['party-card', s.downed ? 'downed' : '', s.dead ? 'dead' : ''].join(' ');
   let status = '';
   if (s.dead) status = 'dead';
@@ -466,7 +477,7 @@ function renderOverlay(g) {
       <ul>
         <li><b>Search</b> your area (tap the big button) to find items. Every area holds different, limited loot.</li>
         <li><b>Combine any 2 items</b> in the field guide to craft better gear — weapons run +1 to +7.</li>
-        <li><b>Regroup.</b> Tap any map area and rally your team. Allies in your area fight beside you, share food, and revive you when you fall.</li>
+        <li><b>Find your teammates.</b> Their drop flares mark a rough direction; until you physically meet, you have no radio contact — no position, no vitals. Once met, they answer your rally (tap any map area), fight beside you, share food, and revive you when you fall.</li>
         <li><b>Escape:</b> install the 3 beacon parts at the central Lab, then — once grid power comes online at ${G.fmtT(FIRE_AT)} — gather everyone and fire it, and hold the Lab while it charges.</li>
         <li>Watch the clock: at ${G.fmtT(23 * 60)} the island starts sealing areas from the rim inward, and at ${G.fmtT(PURGE_AT)} the purge ends the run.</li>
       </ul>
@@ -525,6 +536,7 @@ function onClick(e) {
     case 'install': G.doInstall(g, me); break;
     case 'fire': G.doStartBeacon(g, me); break;
     case 'selitem': ui.selItem = ui.selItem === el.dataset.item ? null : el.dataset.item; break;
+    case 'craft': G.doCraft(g, me, el.dataset.item); break;
     case 'use': G.doEat(g, me, el.dataset.item); break;
     case 'give': G.doGive(g, me, +el.dataset.target, el.dataset.item); break;
     case 'drop': G.doDrop(g, me, el.dataset.item); break;

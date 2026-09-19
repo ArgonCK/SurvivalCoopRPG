@@ -139,7 +139,7 @@ function stepToward(g, s, dest) {
 
 function chatter(g, s, topic) {
   const d = SURVIVOR_DEFS[s.i];
-  if (!d.lines || g.t - s.ai.lastTalk < 60 || rnd(g) > 0.3) return;
+  if (!s.met || !d.lines || g.t - s.ai.lastTalk < 60 || rnd(g) > 0.3) return;
   s.ai.lastTalk = g.t;
   log(g, 'coop', `${s.name}: "${d.lines[topic % d.lines.length]}"`);
 }
@@ -203,8 +203,8 @@ export function aiDecide(g, s) {
     if (stepToward(g, s, 'lab')) return;
   }
 
-  // 6. player rally
-  if (g.rally && !s.isPlayer) {
+  // 6. player rally (only teammates who've synced radios — i.e. met the player)
+  if (g.rally && !s.isPlayer && s.met) {
     if (s.area !== g.rally) { chatter(g, s, 1); if (stepToward(g, s, g.rally)) return; }
     else {
       // at rally: make yourself useful, stay put

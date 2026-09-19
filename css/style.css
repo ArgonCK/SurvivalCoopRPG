@@ -202,6 +202,9 @@ button { font: inherit; cursor: pointer; }
 }
 .party-card.downed { border-color: var(--ember); }
 .party-card.dead { opacity: 0.45; }
+.party-card.unmet { border-style: dashed; background: transparent; }
+.party-card.unmet .nm { color: var(--dim); }
+.party-card.unmet .where { color: var(--ember); letter-spacing: 0.1em; font-size: 10px; }
 .pc-head { display: flex; align-items: center; gap: 8px; }
 .pc-head .dot { width: 10px; height: 10px; border-radius: 50%; }
 .pc-head .nm { font-weight: 600; }

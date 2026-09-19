@@ -81,6 +81,7 @@ export function createGame(seed = Date.now() % 2147483647) {
       weapon: null, armor: null, inv: [],
       downed: false, bleed: 0, dead: false,
       busy: null, resting: false, eatCd: 0, atkCd: 0, guarding: false,
+      met: i === 0, flareDir: compass(d.spawn),
       ai: { mode: 'free', lastTalk: 0 },
     });
   });
@@ -91,8 +92,18 @@ export function createGame(seed = Date.now() % 2147483647) {
     addItem(g, s, 'water');
   }
   log(g, 'sys', 'The transport went down over Cinder Isle. Four of you made it out — scattered to the corners of the island.');
+  const flares = g.survivors.slice(1).map(s => `${s.name} to the ${s.flareDir}`).join(', ');
+  log(g, 'sys', `Three flares rise in the distance: ${flares}. Find them — until you meet, you have no radio contact.`);
   log(g, 'sys', 'Regroup. Repair the extraction beacon at the Research Lab. Get out together.');
   return g;
+}
+
+// --- contact / fog of war ----------------------------------------------
+// Companions are dark to the player until they physically meet ("met").
+export function met(s) { return !!(s.isPlayer || s.met); }
+export function compass(areaId) {
+  const a = byId[areaId];
+  return (a.row <= 1 ? 'north' : 'south') + (a.col <= 1 ? 'west' : 'east');
 }
 
 // --- logging -----------------------------------------------------------
@@ -178,8 +189,8 @@ export function doCraft(g, s, out) {
       else if (s.armor === ing) s.armor = null;
     }
   }
-  if (!addItem(g, s, out)) { g.areas[s.area].pool.push(out); log(g, 'warn', `${s.name} crafted ${ITEMS[out].name} but had no room — left it here.`); }
-  else log(g, 'craft', `${s.name} crafted ${ITEMS[out].name}.`);
+  if (!addItem(g, s, out)) { g.areas[s.area].pool.push(out); if (met(s)) log(g, 'warn', `${s.name} crafted ${ITEMS[out].name} but had no room — left it here.`); }
+  else if (met(s)) log(g, 'craft', `${s.name} crafted ${ITEMS[out].name}.`);
   g.stats.crafts++;
   return true;
 }
@@ -198,7 +209,7 @@ export function doGive(g, s, targetIdx, id) {
   if (!t || t.dead || t.area !== s.area || invCount(s, id) < 1) return false;
   if (!addItem(g, t, id)) return false;
   removeItem(s, id);
-  log(g, 'coop', `${s.name} gave ${ITEMS[id].name} to ${t.name}.`);
+  if (met(s) && met(t)) log(g, 'coop', `${s.name} gave ${ITEMS[id].name} to ${t.name}.`);
   return true;
 }
 export function doRevive(g, s) {
@@ -219,10 +230,10 @@ export function doFlee(g, s) {
   if (exits.length && rnd(g) < 0.75) {
     const dest = pick(g, exits);
     s.area = dest;
-    log(g, 'fight', `${s.name} broke away and fled to ${areaDef(dest).name}.`);
+    if (met(s)) log(g, 'fight', `${s.name} broke away and fled to ${areaDef(dest).name}.`);
   } else {
     s.busy = { kind: 'stumble', until: g.t + TIMES.flee, dur: TIMES.flee };
-    log(g, 'fight', `${s.name} tried to flee but couldn't get away!`);
+    if (met(s)) log(g, 'fight', `${s.name} tried to flee but couldn't get away!`);
   }
   return true;
 }
@@ -296,7 +307,8 @@ function checkDown(g, s, cause) {
   if (s.hp > 0 || s.downed || s.dead) return;
   s.hp = 0; s.downed = true; s.bleed = BLEEDOUT; s.busy = null; s.resting = false;
   g.stats.downs++;
-  log(g, 'warn', `${s.name} is DOWN (${cause}). ${BLEEDOUT}s to bleed out — someone get there!`);
+  if (met(s)) log(g, 'warn', `${s.name} is DOWN (${cause}). ${BLEEDOUT}s to bleed out — someone get there!`);
+  else { s.flareDir = compass(s.area); log(g, 'warn', `A red distress flare bursts over the ${s.flareDir}. Someone out there is in trouble.`); }
   if (g.survivors.every(x => x.dead || x.downed)) {
     end(g, false, 'No one left standing. The island keeps its secrets.');
   }
@@ -310,7 +322,8 @@ function kill(g, s, cause) {
   if (s.weapon) pool.push(s.weapon);
   if (s.armor) pool.push(s.armor);
   s.inv = []; s.weapon = null; s.armor = null;
-  log(g, 'warn', `${s.name} died — ${cause}. Their gear is at ${areaDef(s.area).name}.`);
+  if (met(s)) log(g, 'warn', `${s.name} died — ${cause}. Their gear is at ${areaDef(s.area).name}.`);
+  else log(g, 'warn', `The flare over the ${s.flareDir} has gone dark.`);
   if (g.survivors.every(x => x.dead)) end(g, false, 'The whole team is gone.');
   else if (g.survivors.every(x => x.dead || x.downed)) end(g, false, 'No one left standing.');
 }
@@ -336,8 +349,10 @@ function creatureDeath(g, c, killer) {
   for (const d of drops) {
     if (!killer || killer.dead || !addItem(g, killer, d)) g.areas[c.area].pool.push(d);
   }
-  const who = killer ? killer.name : 'The party';
-  log(g, 'fight', `${who} killed the ${def.name}${drops.length ? ` (${drops.map(d => ITEMS[d].name).join(', ')})` : ''}.`);
+  if (!killer || met(killer)) {
+    const who = killer ? killer.name : 'The party';
+    log(g, 'fight', `${who} killed the ${def.name}${drops.length ? ` (${drops.map(d => ITEMS[d].name).join(', ')})` : ''}.`);
+  }
   if (def.boss) log(g, 'sys', 'The Warden is dead. Its Prototype Core can stand in for any beacon part.');
 }
 
@@ -360,7 +375,7 @@ export function tick(g) {
       if (t && t.downed && !t.dead && t.area === s.area) {
         t.downed = false; t.hp = b.fast ? 8 : 4;
         if (b.fast) removeItem(s, 'bandage');
-        log(g, 'coop', `${s.name} got ${t.name} back on their feet${b.fast ? ' (bandaged)' : ''}.`);
+        if (met(s) || met(t)) log(g, 'coop', `${s.name} got ${t.name} back on their feet${b.fast ? ' (bandaged)' : ''}.`);
       }
     } else if (b.kind === 'install') {
       const partId = b.part === 'wardencore'
@@ -368,7 +383,7 @@ export function tick(g) {
         : b.part;
       if (partId && !g.beacon.installed.includes(partId) && removeItem(s, b.part)) {
         g.beacon.installed.push(partId);
-        log(g, 'sys', `${s.name} installed the ${ITEMS[b.part].name} (${g.beacon.installed.length}/${BEACON_PARTS.length} beacon parts).`);
+        log(g, 'sys', `${met(s) ? s.name : 'Someone out there'} installed the ${ITEMS[b.part].name} (${g.beacon.installed.length}/${BEACON_PARTS.length} beacon parts).`);
       }
     }
   }
@@ -385,6 +400,14 @@ export function tick(g) {
   for (const s of g.survivors) {
     if (!s.downed || s.dead) continue;
     if (--s.bleed <= 0) kill(g, s, 'bled out');
+  }
+
+  // meeting: physically sharing an area with the player establishes contact
+  const p0 = g.survivors[0];
+  for (const s of g.survivors) {
+    if (s.met || s.dead || p0.dead || s.area !== p0.area) continue;
+    s.met = true;
+    log(g, 'sys', `You found ${s.name} at ${areaDef(s.area).name}! Radios synced — they'll answer your rally and share what they find.`);
   }
 
   // reunion check
@@ -544,7 +567,7 @@ function resolveSearch(g, s, p) {
     const id = areaState.pool[idx];
     if (addItem(g, s, id)) {
       areaState.pool.splice(idx, 1);
-      log(g, s.isPlayer ? 'find' : 'info', `${s.name} found ${ITEMS[id].name} at ${areaDef(s.area).name}.`);
+      if (met(s)) log(g, s.isPlayer ? 'find' : 'info', `${s.name} found ${ITEMS[id].name} at ${areaDef(s.area).name}.`);
     } else if (s.isPlayer) {
       log(g, 'warn', `Found ${ITEMS[id].name}, but your pack is full (6 slots).`);
     }

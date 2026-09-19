@@ -3,7 +3,7 @@ import { createGame, tick, serialize } from './game.js';
 import { aiDecide } from './ai.js';
 import { ui, initUI, render, setOverlay, overlayOpen } from './ui.js';
 
-const SAVE_KEY = 'cinder-isle-save-v1';
+const SAVE_KEY = 'cinder-isle-save-v2';
 let g = null;
 
 function newGame() {
